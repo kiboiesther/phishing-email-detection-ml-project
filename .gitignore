@@ -1,3 +1,12 @@
+
+# Kaggle API key
+.kaggle/
+kaggle.json
+
+# Datasets
+data/
+*.zip
+*.csv
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
