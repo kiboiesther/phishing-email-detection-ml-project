@@ -1,57 +1,63 @@
-
 import pandas as pd
 import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer
-
-# Download NLTK resources (run once)
-nltk.download('stopwords')
-nltk.download('wordnet')
-
-stop_words = set(stopwords.words('english'))
-lemmatizer = WordNetLemmatizer()
-
-# --- Step 1: Load dataset ---
-df = pd.read_csv("data/phishing_Email.csv")
-print("Shape before cleaning:", df.shape)
-
-# --- Step 2: Drop missing and duplicates ---
-df.dropna(subset=['Email Text', 'Email Type'], inplace=True)
-df.drop_duplicates(inplace=True)
-print("Shape after cleaning:", df.shape)
-
-# --- Step 3: Define cleaning function ---
-def clean_text(text):
-    if pd.isnull(text):
-        return ""
-    text = re.sub(r'<.*?>', ' ', text)  # remove HTML
-    text = re.sub(r'http\S+|www\S+', ' ', text)  # remove URLs
-    text = re.sub(r'[^a-zA-Z]', ' ', text)  # keep only letters
-    text = text.lower()
-    words = text.split()
-    words = [lemmatizer.lemmatize(w) for w in words if w not in stop_words]
-    return " ".join(words)
-
-# --- Step 4: Apply cleaning ---
-df['cleaned_text'] = df['Email Text'].apply(clean_text)
-
-# --- Step 5: Rename target column ---
-df.rename(columns={'Email Type': 'Label'}, inplace=True)
-
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_selection import SelectKBest, chi2
+from scipy.sparse import hstack
 import os
 
-# Ensure the directory exists before saving
+# -------------------------
+# 1. Load already cleaned dataset from Esther
+# -------------------------
+df = pd.read_csv("data/cleaned_phishing_emails.csv")
+print("✅ Loaded cleaned dataset:", df.shape)
+print(df.head())
+
+# Ensure cleaned_text is always a string
+df['cleaned_text'] = df['cleaned_text'].fillna("").astype(str)
+
+# -------------------------
+# 2. Convert Labels (Safe Email -> 0, Phishing Email -> 1)
+# -------------------------
+df['label'] = df['Label'].map({
+    "Safe Email": 0,
+    "Phishing Email": 1
+})
+print("✅ Converted labels to numeric (0 = Safe, 1 = Phishing)")
+
+# -------------------------
+# 3. Handcrafted features
+# -------------------------
+df['email_length'] = df['cleaned_text'].apply(len)
+df['num_digits'] = df['cleaned_text'].apply(lambda x: sum(c.isdigit() for c in x))
+df['num_links'] = df['cleaned_text'].apply(lambda x: len(re.findall(r'http[s]?://', str(x))))
+df['has_urgent'] = df['cleaned_text'].apply(lambda x: 1 if 'urgent' in x else 0)
+
+# -------------------------
+# 4. TF-IDF Features
+# -------------------------
+vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1,2))
+X_tfidf = vectorizer.fit_transform(df['cleaned_text'])
+
+# Combine handcrafted + TF-IDF
+numeric_features = df[['email_length','num_digits','num_links','has_urgent']].values
+X = hstack([X_tfidf, numeric_features])
+y = df['label']
+
+# -------------------------
+# 5. Feature Selection
+# -------------------------
+selector = SelectKBest(chi2, k=1000)   # select top 1000 features
+X_selected = selector.fit_transform(X, y)
+
+# -------------------------
+# 6. Save dataset with engineered features
+# -------------------------
 os.makedirs("pre_process/data", exist_ok=True)
+df[['cleaned_text','label','email_length','num_digits','num_links','has_urgent']].to_csv(
+    "pre_process/data/feature_engineered_emails.csv", index=False
+)
 
-# --- Step 6: Save cleaned dataset ---
-df[['cleaned_text', 'Label']].to_csv("pre_process/data/cleaned_phishing_emails.csv", index=False)
-print("Cleaned dataset saved to pre_process/data/cleaned_phishing_emails.csv")
-
-# Show preview
-print("\nPreview of cleaned dataset:")
-print(df[['cleaned_text', 'Label']].head())
-
-# Check class balance
+print("✅ Feature-engineered dataset saved to pre_process/data/feature_engineered_emails.csv")
+print("📊 Feature matrix shape (after selection):", X_selected.shape)
 print("\nClass distribution:")
-print(df['Label'].value_counts())
+print(df['label'].value_counts())
