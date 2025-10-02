@@ -1,13 +1,7 @@
-# Core Python libraries
-numpy
 pandas
 scikit-learn
-matplotlib
-seaborn
-
-# Kaggle API (for dataset download)
-kaggle
-
-# Optional: Jupyter support (if teammates want notebooks)
-jupyter
-notebook
+imbalanced-learn
+xgboost
+joblib
+shap
+lime
